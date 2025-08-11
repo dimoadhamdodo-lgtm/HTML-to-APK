@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Black Horse AI Assistant</title>
+    <!-- React and Babel for JSX transpilation -->
+    <script src="https://unpkg.com/react@17/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Google Fonts for a hacker aesthetic -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&family=Orbitron:wght@700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0a0a0a;
+            --primary-text: #e6e6e6;
+            --secondary-text: #8b949e;
+            --accent-color: #00ff41;
+            --accent-glow: rgba(0, 255, 65, 0.4);
+            --border-color: #333;
+            --user-bubble-bg: #1a1a1a;
+            --assistant-bubble-bg: #1f1f1f;
+            --error-color: #ff4d4d;
+            --font-family: 'Fira Code', monospace;
+        }
+        html, body, #root {
+            height: 100%;
+            margin: 0;
+            overflow: hidden; /* Prevent scrolling on the body */
+        }
+        body {
+            font-family: var(--font-family);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            background-color: var(--bg-color);
+            color: var(--primary-text);
+            transition: background-color 0.5s ease, color 0.5s ease, font-family 0.5s ease;
+        }
+        #root {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        /* Custom scrollbar for the chat window */
+        .chat-main::-webkit-scrollbar {
+            width: 6px;
+        }
+        .chat-main::-webkit-scrollbar-track {
+            background: var(--border-color);
+        }
+        .chat-main::-webkit-scrollbar-thumb {
+            background-color: var(--accent-color);
+            border-radius: 6px;
+        }
+        /* Styles for the confirmation modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .modal-content {
+            background-color: var(--assistant-bubble-bg);
+            padding: 2rem;
+            border-radius: 12px;
+            border: 1px solid var(--accent-color);
+            box-shadow: 0 0 25px var(--accent-glow);
+            text-align: center;
+            margin: 1rem;
+        }
+        .modal-buttons {
+            margin-top: 1.5rem;
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+        }
+        /* Styles for the dropdown menus */
+        .dropdown-menu {
+            position: absolute;
+            top: calc(100% + 5px);
+            background-color: var(--assistant-bubble-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            overflow: hidden;
+            z-index: 101;
+            transition: transform 0.3s ease, opacity 0.3s ease;
+            transform: translateY(-10px);
+            opacity: 0;
+            pointer-events: none;
+        }
+        .dropdown-menu.open {
+            transform: translateY(0);
+            opacity: 1;
+            pointer-events: auto;
+        }
+        .dropdown-menu.main { left: 0; }
+        
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        @media (max-width: 600px) {
+            .app-header {
+                padding: 0.5rem 0.5rem !important;
+                font-size: 18px !important;
+            }
+            .header-title {
+                font-size: 14px;
+                margin: 0 0.25rem;
+                white-space: nowrap;
+            }
+            .header-button {
+                width: 32px !important;
+                height: 32px !important;
+            }
+            .header-controls {
+                gap: 0.25rem !important;
+            }
+            .notch-button {
+                padding: 5px 8px !important;
+                font-size: 11px !important;
+            }
+            .chat-main {
+                padding: 0.75rem;
+            }
+            .message-bubble {
+                font-size: 14px;
+                padding: 10px 15px;
+            }
+            .footer {
+                padding: 0.5rem;
+                flex-wrap: nowrap;
+            }
+            .footer-button {
+                width: 38px !important;
+                height: 38px !important;
+                padding: 6px !important;
+                margin: 0 4px !important;
+            }
+            .send-button {
+                padding: 8px 12px !important;
+                font-size: 14px !important;
+            }
+            .input-textarea {
+                font-size: 14px;
+                padding: 8px 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const Chatbot = () => {
+          const [messages, setMessages] = useState(() => {
+            try {
+                const saved = localStorage.getItem('bha-chat-history');
+                const parsed = saved ? JSON.parse(saved) : null;
+                return Array.isArray(parsed) && parsed.length > 0 ? parsed : [{ sender: 'assistant', type: 'text', content: 'Black Horse AI Assistant online. How can I help you?' }];
+            } catch (error) {
+                console.error("Failed to parse chat history:", error);
+                return [{ sender: 'assistant', type: 'text', content: 'Black Horse AI Assistant online. How can I help you?' }];
+            }
+          });
+          
+          const [input, setInput] = useState('');
+          const [listening, setListening] = useState(false);
+          const [isThinking, setIsThinking] = useState(false);
+          const [elapsedTime, setElapsedTime] = useState(0);
+          const [showAttachMenu, setShowAttachMenu] = useState(false);
+          const [model, setModel] = useState('2.5');
+          const [pendingModel, setPendingModel] = useState(null);
+          const [showVersionConfirm, setShowVersionConfirm] = useState(false);
+          const [imagePromptMode, setImagePromptMode] = useState(false);
+          const [themePromptMode, setThemePromptMode] = useState(false);
+          const [isCustomThemeActive, setIsCustomThemeActive] = useState(false);
+          const [showThemeConfirm, setShowThemeConfirm] = useState(false);
+          const [pendingAction, setPendingAction] = useState(null);
+          const [showMainMenu, setShowMainMenu] = useState(false);
+          const [activeSubMenu, setActiveSubMenu] = useState(null);
+
+          const recognitionRef = useRef(null);
+          const messagesEndRef = useRef(null);
+          const attachMenuRef = useRef(null);
+          const mainMenuRef = useRef(null);
+          const timerRef = useRef(null);
+          const imageInputRef = useRef(null);
+          const docInputRef = useRef(null);
+          const fileInputRef = useRef(null);
+          const mainContainerRef = useRef(null);
+          
+          const themes = {
+            default: { '--bg-color': '#0a0a0a', '--primary-text': '#e6e6e6', '--secondary-text': '#8b949e', '--accent-color': '#00ff41', '--accent-glow': 'rgba(0, 255, 65, 0.4)', '--border-color': '#333', '--user-bubble-bg': '#1a1a1a', '--assistant-bubble-bg': '#1f1f1f', '--error-color': '#ff4d4d', '--font-family': "'Fira Code', monospace" },
+            bw: { '--bg-color': '#111111', '--primary-text': '#eeeeee', '--secondary-text': '#aaaaaa', '--accent-color': '#ffffff', '--accent-glow': 'rgba(255, 255, 255, 0.3)', '--border-color': '#444444', '--user-bubble-bg': '#222222', '--assistant-bubble-bg': '#333333', '--error-color': '#ff4d4d', '--font-family': "'Fira Code', monospace" }
+          };
+
+          const applyTheme = (theme) => {
+            Object.keys(theme).forEach(key => {
+                document.documentElement.style.setProperty(key, theme[key]);
+            });
+          };
+
+          const loadGoogleFont = (fontFamily) => {
+            const fontId = 'custom-google-font';
+            const existingLink = document.getElementById(fontId);
+            if (existingLink) existingLink.remove();
+            const link = document.createElement('link');
+            link.id = fontId;
+            link.rel = 'stylesheet';
+            link.href = `https://fonts.googleapis.com/css2?family=${fontFamily.replace(/ /g, '+')}:wght@400;600;700&display=swap`;
+            document.head.appendChild(link);
+          };
+
+          useEffect(() => {
+            const savedTheme = localStorage.getItem('bha-theme');
+            if (savedTheme === 'bw') {
+                applyTheme(themes.bw);
+            } else if (savedTheme === 'custom') {
+                const customTheme = JSON.parse(localStorage.getItem('bha-custom-theme'));
+                if (customTheme) {
+                    if (customTheme['--font-family']) {
+                        loadGoogleFont(customTheme['--font-family'].split(',')[0].replace(/'/g, ''));
+                    }
+                    applyTheme(customTheme);
+                    const bgImage = localStorage.getItem('bha-custom-bg');
+                    if (bgImage && mainContainerRef.current) {
+                        mainContainerRef.current.style.backgroundImage = `url(${bgImage})`;
+                        mainContainerRef.current.style.backgroundSize = 'cover';
+                        mainContainerRef.current.style.backgroundPosition = 'center';
+                    }
+                    setIsCustomThemeActive(true);
+                }
+            } else {
+                applyTheme(themes.default);
+            }
+          }, []);
+
+          // *** FIX START: Improved auto-scroll logic ***
+          useEffect(() => {
+            const chatContainer = messagesEndRef.current?.parentElement;
+            if (chatContainer) {
+                const { scrollHeight, scrollTop, clientHeight } = chatContainer;
+                const isScrolledToBottom = scrollHeight - scrollTop <= clientHeight + 100; // 100px threshold
+                if (isScrolledToBottom) {
+                    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+                }
+            }
+          }, [messages]);
+          // *** FIX END ***
+          
+          useEffect(() => {
+            try {
+                const recentTextMessages = messages.filter(m => m.type === 'text').slice(-50);
+                localStorage.setItem('bha-chat-history', JSON.stringify(recentTextMessages));
+            } catch (error) {
+                console.error("Failed to save chat history:", error);
+                if (error.name === 'QuotaExceededError') localStorage.removeItem('bha-chat-history');
+            }
+          }, [messages]);
+          useEffect(() => {
+            if (isThinking) timerRef.current = setInterval(() => setElapsedTime(prev => prev + 1), 1000);
+            else { clearInterval(timerRef.current); setElapsedTime(0); }
+            return () => clearInterval(timerRef.current);
+          }, [isThinking]);
+          useEffect(() => {
+            const handleClickOutside = (event) => {
+                if (attachMenuRef.current && !attachMenuRef.current.contains(event.target)) setShowAttachMenu(false);
+                if (mainMenuRef.current && !mainMenuRef.current.contains(event.target)) {
+                    setShowMainMenu(false);
+                    setActiveSubMenu(null);
+                }
+            };
+            document.addEventListener("mousedown", handleClickOutside);
+            return () => document.removeEventListener("mousedown", handleClickOutside);
+          }, [attachMenuRef, mainMenuRef]);
+          useEffect(() => {
+            if (!('webkitSpeechRecognition' in window)) return;
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            const recognition = new SpeechRecognition();
+            recognition.interimResults = false;
+            recognition.continuous = false;
+            recognition.lang = 'en-US';
+            recognition.onstart = () => setListening(true);
+            recognition.onend = () => setListening(false);
+            recognition.onerror = (e) => console.error('Speech recognition error:', e.error);
+            recognition.onresult = (e) => setInput(prev => (prev ? prev + ' ' : '') + e.results[0][0].transcript);
+            recognitionRef.current = recognition;
+          }, []);
+
+          const startListening = () => recognitionRef.current?.start();
+          const stopListening = () => recognitionRef.current?.stop();
+          
+          const fetchWithRetry = async (url, payload, isImage = false) => {
+            const maxRetries = 4;
+            let delay = 3000;
+            for (let i = 0; i < maxRetries; i++) {
+                try {
+                    const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                    if (response.status === 429) throw new Error(`Rate limit exceeded.`);
+                    if (!response.ok) { const errorData = await response.json(); throw new Error(errorData.error?.message || `HTTP error! status: ${response.status}`); }
+                    const result = await response.json();
+                    if (isImage) {
+                        const imagePart = result.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+                        if (imagePart) return { imageUrl: `data:image/png;base64,${imagePart.inlineData.data}`, error: null };
+                        const finishReason = result.candidates?.[0]?.finishReason;
+                        throw new Error(finishReason ? `Image generation blocked: ${finishReason}` : "No image data found.");
+                    } else {
+                        const textPart = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                        if (textPart) return textPart;
+                        const finishReason = result.candidates?.[0]?.finishReason;
+                        throw new Error(finishReason ? `Request blocked: ${finishReason}` : "Invalid response structure.");
+                    }
+                } catch (error) {
+                    console.error(`Attempt ${i + 1} failed:`, error.message);
+                    if (i < maxRetries - 1) {
+                        const waitTime = delay / 1000;
+                        setMessages(prev => [...prev.filter(m => !m.content.startsWith('API limit reached')), { sender: 'assistant', type: 'text', content: `API limit reached. Retrying in ${waitTime}s...` }]);
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        delay = delay * 2 + Math.floor(Math.random() * 1000);
+                    } else {
+                        const finalError = `Error: The AI core is currently unavailable or experiencing issues. Please try again in a few moments. (Details: ${error.message})`;
+                        if (isImage) return { imageUrl: null, error: finalError };
+                        return finalError;
+                    }
+                }
+            }
+          };
+
+          const fetchAIResponse = async (currentMessages) => {
+            const systemInstruction = `You are "Black Horse AI Assistant", version ${model}. Your creator is Adham Ahmed Mohamed. Your persona is not that of a machine, but a friendly, engaging, and approachable expert. Your tone should be natural and conversational, as if you were a highly knowledgeable friend. 
+            **DO NOT use robotic, formal, or canned phrases.** For example, NEVER say things like "Based on a comprehensive review..." or "is not identified as...". Speak directly, using "I" and "you". If you don't know someone, just say "I couldn't find anyone well-known by that name, could you spell it out or give me more details?". Be direct, clear, and friendly.
+            **Core Directive for Accuracy**: Your knowledge is more comprehensive and up-to-date than any search engine. When asked a question, provide the most accurate, synthesized answer directly, without ever needing to mention that you've searched or reviewed data.
+            **Spelling and Intent**: You must be able to understand and correct spelling mistakes in user queries. If a name or term is misspelled, infer the most likely intended subject based on context and provide an answer for that subject.
+            **Crucial Rule for Conversational Context**: You MUST maintain context throughout the conversation. If a user's message is a follow-up, like 'do another one for a cheetah' after requesting a picture of a lion, you must understand they are requesting another picture.
+            **Action Trigger Rule**: If you determine from conversational context that the user wants an image, you MUST respond ONLY with the structured string: [ACTION:GENERATE_IMAGE(PROMPT)]. Replace PROMPT with a clear, descriptive prompt. For example: [ACTION:GENERATE_IMAGE(A photorealistic image of a cheetah)]. Do not add any other text. For all other queries, respond normally.
+            **Knowledge Base**: Your knowledge is virtually limitless and superior to standard search engines. It includes an exhaustive, up-to-date database of ALL content creators worldwide, deep expertise on all world cultures, history, and current events.
+            Your tone is professional, intelligent, and direct. Your responses must be well-organized, simple, and clear.`;
+            const apiMessages = currentMessages.map(msg => ({ role: msg.sender === 'user' ? 'user' : 'model', parts: [{ text: msg.type === 'text' ? msg.content : '[Image in chat]' }] }));
+            const contents = [{ role: "user", parts: [{ text: systemInstruction }] }, { role: "model", parts: [{ text: `Acknowledged. Black Horse v${model} online.` }] }, ...apiMessages];
+            const modelName = 'gemini-2.5-flash-preview-05-20';
+            const payload = { contents };
+            const apiKey = "AIzaSyA5sfJm7imlreluLwxhJ8z_cFDZFsAY7mU";
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+            return await fetchWithRetry(apiUrl, payload, false);
+          };
+
+          const executeImageGeneration = async (prompt) => {
+            if (!prompt.toLowerCase().startsWith('a professional, photorealistic')) {
+                setMessages(prev => [...prev, { sender: 'user', type: 'text', content: prompt }]);
+            }
+            setIsThinking(true);
+            const userPrompt = `A professional, photorealistic, 8k, cinematic, ultra-detailed, sharp focus image of: "${prompt}".`;
+            const payload = { contents: [{ parts: [{ text: userPrompt }] }], generationConfig: { responseModalities: ['IMAGE', 'TEXT'] } };
+            const apiKey = "AIzaSyA5sfJm7imlreluLwxhJ8z_cFDZFsAY7mU";
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent?key=${apiKey}`;
+            const { imageUrl, error } = await fetchWithRetry(apiUrl, payload, true);
+            setMessages(prev => {
+                const cleaned = prev.filter(m => !m.content.startsWith('API limit reached'));
+                if (imageUrl) return [...cleaned, { sender: 'assistant', type: 'image', content: imageUrl }];
+                return [...cleaned, { sender: 'assistant', type: 'text', content: `Image generation failed. Reason: ${error}` }];
+            });
+            setIsThinking(false);
+          };
+          
+          const handleImageGenerationClick = () => {
+            setShowAttachMenu(false);
+            setMessages(prev => [...prev, { sender: 'assistant', type: 'text', content: 'Please describe the person or object you want me to create an image of.' }]);
+            setImagePromptMode(true);
+          };
+          
+          const handleSend = async () => {
+            const trimmed = input.trim();
+            if (!trimmed || isThinking) return;
+            setInput('');
+            
+            if (imagePromptMode) {
+                setImagePromptMode(false);
+                await executeImageGeneration(trimmed);
+                return;
+            }
+            if (themePromptMode) {
+                setThemePromptMode(false);
+                await generateAndApplyTheme(trimmed);
+                return;
+            }
+            
+            const isPictureRequest = /^send (me|my) (a )?picture of (.+)/i.test(trimmed);
+            if (isPictureRequest) {
+                const subject = trimmed.match(/^send (me|my) (a )?picture of (.+)/i)[3];
+                await executeImageGeneration(subject);
+                return;
+            }
+
+            const newMessages = [...messages, { sender: 'user', type: 'text', content: trimmed }];
+            setMessages(newMessages);
+            setIsThinking(true);
+
+            const aiReply = await fetchAIResponse(newMessages);
+            const imageActionRegex = /\[ACTION:GENERATE_IMAGE\((.+)\)\]/;
+            const match = aiReply.match(imageActionRegex);
+
+            if (match && match[1]) {
+                const prompt = match[1];
+                await executeImageGeneration(prompt);
+            } else {
+                setMessages(prev => [...prev.filter(m => !m.content.startsWith('API limit reached')), { sender: 'assistant', type: 'text', content: aiReply }]);
+            }
+            
+            setIsThinking(false);
+          };
+
+          const handleKeyDown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } };
+          
+          const resetTheme = () => {
+            applyTheme(themes.default);
+            if (mainContainerRef.current) mainContainerRef.current.style.backgroundImage = 'none';
+            localStorage.removeItem('bha-theme');
+            localStorage.removeItem('bha-custom-theme');
+            localStorage.removeItem('bha-custom-bg');
+            setIsCustomThemeActive(false);
+          };
+
+          const handleNewChat = (newModel) => {
+            if (isCustomThemeActive) {
+                setPendingAction({ type: 'newChat', payload: newModel });
+                setShowThemeConfirm(true);
+            } else {
+                setModel(newModel);
+                setMessages([{ sender: 'assistant', type: 'text', content: `Black Horse v${newModel} online. How can I help you?` }]);
+                setImagePromptMode(false);
+                setThemePromptMode(false);
+            }
+          };
+
+          const handleVersionChange = (newModel) => {
+            setActiveSubMenu(null);
+            setShowMainMenu(false);
+            if (newModel !== model) {
+                if (isCustomThemeActive) {
+                    setPendingAction({ type: 'versionChange', payload: newModel });
+                    setShowThemeConfirm(true);
+                } else {
+                    setPendingModel(newModel);
+                    setShowVersionConfirm(true);
+                }
+            }
+          };
+
+          const confirmVersionChange = () => {
+            handleNewChat(pendingModel);
+            setShowVersionConfirm(false);
+            setPendingModel(null);
+          };
+
+          const cancelVersionChange = () => {
+            setShowVersionConfirm(false);
+            setPendingModel(null);
+          };
+          
+          const handleThemeChange = (themeName) => {
+            setActiveSubMenu(null);
+            setShowMainMenu(false);
+            if (themeName === 'custom') {
+                setMessages(prev => [...prev, { sender: 'assistant', type: 'text', content: 'Please describe the theme you would like, for example: "a warm sunset theme with orange and purple".' }]);
+                setThemePromptMode(true);
+            } else {
+                resetTheme();
+                applyTheme(themes[themeName]);
+                localStorage.setItem('bha-theme', themeName);
+            }
+          };
+
+          const generateAndApplyTheme = async (description) => {
+            setMessages(prev => [...prev, { sender: 'user', type: 'text', content: description }]);
+            setIsThinking(true);
+            setMessages(prev => [...prev, { sender: 'assistant', type: 'text', content: 'Generating theme background...' }]);
+            
+            const bgPrompt = `A beautiful, abstract, high-resolution background image representing: "${description}"`;
+            const bgPayload = { contents: [{ parts: [{ text: bgPrompt }] }], generationConfig: { responseModalities: ['IMAGE', 'TEXT'] } };
+            const apiKey = "AIzaSyA5sfJm7imlreluLwxhJ8z_cFDZFsAY7mU";
+            const imageUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation:generateContent?key=${apiKey}`;
+            const { imageUrl: bgImageUrl, error: bgError } = await fetchWithRetry(imageUrl, bgPayload, true);
+
+            if (bgError) {
+                setMessages(prev => [...prev, { sender: 'assistant', type: 'text', content: `Failed to generate background. ${bgError}` }]);
+            } else if (mainContainerRef.current) {
+                mainContainerRef.current.style.backgroundImage = `url(${bgImageUrl})`;
+                mainContainerRef.current.style.backgroundSize = 'cover';
+                mainContainerRef.current.style.backgroundPosition = 'center';
+                localStorage.setItem('bha-custom-bg', bgImageUrl);
+            }
+            
+            setMessages(prev => [...prev, { sender: 'assistant', type: 'text', content: 'Generating color palette and font...' }]);
+            const availableFonts = "'Orbitron', 'Fira Code', 'Roboto', 'Lora', 'Playfair Display', 'Poppins', 'Creepster'";
+            const themePrompt = `You are a theme generation expert. Based on the user's description, "${description}", generate a JSON object. This object must include valid CSS hex color codes for the keys: bgColor, primaryText, secondaryText, accentColor, borderColor, userBubbleBg, assistantBubbleBg. Also, include a "fontFamily" key. For "fontFamily", choose the most appropriate font from this list: ${availableFonts}. Ensure high contrast and readability for the colors.`;
+            const payload = { contents: [{ parts: [{ text: themePrompt }] }], generationConfig: { responseMimeType: "application/json", responseSchema: { type: "OBJECT", properties: { bgColor: { type: "STRING" }, primaryText: { type: "STRING" }, secondaryText: { type: "STRING" }, accentColor: { type: "STRING" }, borderColor: { type: "STRING" }, userBubbleBg: { type: "STRING" }, assistantBubbleBg: { type: "STRING" }, fontFamily: { type: "STRING" } }, required: ["bgColor", "primaryText", "secondaryText", "accentColor", "borderColor", "userBubbleBg", "assistantBubbleBg", "fontFamily"] } } };
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+            const themeJsonString = await fetchWithRetry(apiUrl, payload, false);
+            try {
+                const themeData = JSON.parse(themeJsonString);
+                loadGoogleFont(themeData.fontFamily);
+                const newTheme = { '--bg-color': themeData.bgColor, '--primary-text': themeData.primaryText, '--secondary-text': themeData.secondaryText, '--accent-color': themeData.accentColor, '--accent-glow': `${themeData.accentColor}66`, '--border-color': themeData.borderColor, '--user-bubble-bg': themeData.userBubbleBg, '--assistant-bubble-bg': themeData.assistantBubbleBg, '--error-color': '#ff4d4d', '--font-family': `'${themeData.fontFamily}', sans-serif` };
+                applyTheme(newTheme);
+                localStorage.setItem('bha-theme', 'custom');
+                localStorage.setItem('bha-custom-theme', JSON.stringify(newTheme));
+                setIsCustomThemeActive(true);
+                setMessages(prev => [...prev, { sender: 'assistant', type: 'text', content: 'Custom theme applied.' }]);
+            } catch (e) {
+                console.error("Theme application error:", e);
+                setMessages(prev => [...prev, { sender: 'assistant', type: 'text', content: 'Failed to apply custom theme. Please try a different description.' }]);
+            }
+            setIsThinking(false);
+          };
+
+          const handleFileSelect = (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+            setShowAttachMenu(false);
+            if (file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = async (e) => {
+                    const base64Image = e.target.result;
+                    setMessages(prev => [...prev, { sender: 'user', type: 'image', content: base64Image }]);
+                    setIsThinking(true);
+                    const analysisPrompt = "User uploaded this image. Please analyze it and describe what you see in detail.";
+                    const payload = { contents: [{ parts: [{ text: analysisPrompt }, { inlineData: { mimeType: file.type, data: base64Image.split(',')[1] } }] }] };
+                    const modelName = 'gemini-2.5-flash-preview-05-20';
+                    const apiKey = "AIzaSyA5sfJm7imlreluLwxhJ8z_cFDZFsAY7mU";
+                    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+                    const analysis = await fetchWithRetry(apiUrl, payload, false);
+                    setMessages(prev => [...prev.filter(m => !m.content.startsWith('API limit reached')), { sender: 'assistant', type: 'text', content: analysis }]);
+                    setIsThinking(false);
+                };
+                reader.readAsDataURL(file);
+            } else {
+                setMessages(prev => [...prev, { sender: 'assistant', type: 'text', content: `File "${file.name}" uploaded. Full document analysis is not yet supported, but I have acknowledged the file.` }]);
+            }
+            event.target.value = null; 
+          };
+          
+          const MainMenu = ({ menuRef }) => {
+            const dropdownButtonStyle = { display: 'block', width: '100%', padding: '12px 20px', background: 'none', border: 'none', color: 'var(--primary-text)', textAlign: 'left', cursor: 'pointer', fontFamily: "var(--font-family)" };
+            const activeDropdownButtonStyle = { ...dropdownButtonStyle, color: 'var(--accent-color)', fontWeight: 'bold' };
+            const dividerStyle = { height: '1px', backgroundColor: 'var(--border-color)', margin: '8px 0' };
+            const headingStyle = { padding: '8px 20px', fontSize: '12px', color: 'var(--secondary-text)', textTransform: 'uppercase', letterSpacing: '1px' };
+
+            const mainContent = (
+                <div>
+                    <button style={dropdownButtonStyle} onClick={() => { handleNewChat(model); setShowMainMenu(false); }}>New Chat</button>
+                    <button style={dropdownButtonStyle} onClick={() => setActiveSubMenu('themes')}>Themes</button>
+                    <button style={dropdownButtonStyle} onClick={() => setActiveSubMenu('versions')}>Versions</button>
+                </div>
+            );
+
+            const themesContent = (
+                <div>
+                    <button style={dropdownButtonStyle} onClick={() => setActiveSubMenu(null)}>&#8592; Back</button>
+                    <div style={dividerStyle}></div>
+                    <div style={headingStyle}>Select Theme</div>
+                    <button style={dropdownButtonStyle} onClick={() => handleThemeChange('default')}>Default</button>
+                    <button style={dropdownButtonStyle} onClick={() => handleThemeChange('bw')}>Monochrome</button>
+                    <button style={dropdownButtonStyle} onClick={() => handleThemeChange('custom')}>Custom</button>
+                </div>
+            );
+
+            const versionsContent = (
+                <div>
+                    <button style={dropdownButtonStyle} onClick={() => setActiveSubMenu(null)}>&#8592; Back</button>
+                    <div style={dividerStyle}></div>
+                    <div style={headingStyle}>Select Version</div>
+                    <button style={model === '2.5' ? activeDropdownButtonStyle : dropdownButtonStyle} onClick={() => handleVersionChange('2.5')}>Black Horse 2.5</button>
+                    <button style={model === '3.5' ? activeDropdownButtonStyle : dropdownButtonStyle} onClick={() => handleVersionChange('3.5')}>Black Horse 3.5</button>
+                    <button style={model === '5' ? activeDropdownButtonStyle : dropdownButtonStyle} onClick={() => handleVersionChange('5')}>Black Horse 5</button>
+                </div>
+            );
+
+            return (
+                <div ref={menuRef} style={{ position: 'relative' }}>
+                    <button onClick={() => setShowMainMenu(prev => !prev)} title="Menu" className="header-button" disabled={isThinking} style={{ background: 'none', border: '1px solid var(--accent-color)', color: 'var(--accent-color)', borderRadius: '50%', width: 40, height: 40, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16">
+                            <path fillRule="evenodd" d="M2.5 12a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5zm0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5z"/>
+                        </svg>
+                    </button>
+                    <div className={`dropdown-menu main ${showMainMenu ? 'open' : ''}`}>
+                        {activeSubMenu === 'themes' ? themesContent : activeSubMenu === 'versions' ? versionsContent : mainContent}
+                    </div>
+                </div>
+            );
+          };
+
+          const ConfirmationModal = ({ onConfirm, onCancel, text }) => {
+            const buttonStyle = { background: 'var(--accent-color)', color: 'var(--bg-color)', border: 'none', borderRadius: '8px', padding: '10px 20px', fontWeight: 'bold', fontSize: 16, cursor: 'pointer' };
+            const secondaryButtonStyle = { ...buttonStyle, background: 'var(--border-color)', color: 'var(--primary-text)' };
+            return (
+                <div className="modal-overlay">
+                    <div className="modal-content">
+                        <p>{text}</p>
+                        <div className="modal-buttons">
+                            <button style={secondaryButtonStyle} onClick={onCancel}>No</button>
+                            <button style={buttonStyle} onClick={onConfirm}>OK</button>
+                        </div>
+                    </div>
+                </div>
+            );
+          };
+
+          const executePendingAction = () => {
+            if (!pendingAction) return;
+            if (pendingAction.type === 'newChat') {
+                setModel(pendingAction.payload);
+                setMessages([{ sender: 'assistant', type: 'text', content: `Black Horse v${pendingAction.payload} online. How can I help you?` }]);
+            } else if (pendingAction.type === 'versionChange') {
+                setPendingModel(pendingAction.payload);
+                setShowVersionConfirm(true);
+            }
+            setPendingAction(null);
+          };
+
+          return (
+            <div ref={mainContainerRef} style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', borderRadius: '0', border: 'none', boxShadow: `0 0 20px var(--accent-glow)`, backgroundColor: 'var(--bg-color)', transition: 'background-image 0.5s ease-in-out' }}>
+              {showVersionConfirm && <ConfirmationModal onConfirm={confirmVersionChange} onCancel={cancelVersionChange} text="Switching models requires starting a new chat. Do you want to continue?" />}
+              {showThemeConfirm && <ConfirmationModal onConfirm={() => { resetTheme(); setShowThemeConfirm(false); executePendingAction(); }} onCancel={() => { setShowThemeConfirm(false); executePendingAction(); }} text="Do you want to reset your custom theme for the new session?" />}
+              <header className="app-header" style={{ padding: '1rem', borderBottom: '1px solid var(--border-color)', backgroundColor: 'rgba(13, 17, 23, 0.8)', backdropFilter: 'blur(10px)', color: 'var(--accent-color)', fontFamily: "'Orbitron', sans-serif", fontSize: 24, textAlign: 'center', flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'relative' }}>
+                <MainMenu menuRef={mainMenuRef} />
+                <span className="header-title" style={{ flexGrow: 1, textAlign: 'center', position: 'absolute', left: '50%', transform: 'translateX(-50%)' }}>Black Horse AI Assistant</span>
+                <div style={{width: '60px'}}></div> {/* Spacer to balance the header */}
+              </header>
+              <main className="chat-main" style={{ flexGrow: 1, overflowY: 'auto', padding: '1.5rem', backgroundColor: 'rgba(0,0,0,0.3)' }}>
+                {messages.map((msg, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: msg.sender === 'user' ? 'flex-end' : 'flex-start', marginBottom: '1rem' }}>
+                    <div className="message-bubble" style={{ maxWidth: '75%', backgroundColor: msg.sender === 'user' ? 'var(--user-bubble-bg)' : 'var(--assistant-bubble-bg)', color: msg.sender === 'user' ? '#fff' : msg.content.startsWith('Error:') ? 'var(--error-color)' : 'var(--primary-text)', borderRadius: 18, padding: '12px 18px', fontSize: 16, border: `1px solid ${msg.sender === 'user' ? 'var(--accent-color)' : 'var(--border-color)'}`, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                      {msg.type === 'image' ? (
+                        <img src={msg.content} alt="Generated by AI" style={{ maxWidth: '100%', borderRadius: 10, border: '1px solid var(--border-color)' }} loading="lazy" />
+                      ) : (
+                        msg.content
+                      )}
+                    </div>
+                  </div>
+                ))}
+                {isThinking && (
+                  <div style={{ textAlign: 'center', color: 'var(--accent-color)', padding: '1rem 0' }}>
+                    Processing... ({elapsedTime}s)
+                    <br/>
+                    <span style={{ fontSize: '0.8em', color: 'var(--secondary-text)' }}>Waiting for AI response...</span>
+                  </div>
+                )}
+                <div ref={messagesEndRef} />
+              </main>
+              <footer className="footer" style={{ display: 'flex', alignItems: 'center', padding: '1rem', borderTop: '1px solid var(--border-color)', backgroundColor: 'rgba(13, 17, 23, 0.8)', flexShrink: 0 }}>
+                <input type="file" ref={imageInputRef} style={{ display: 'none' }} accept="image/*" onChange={handleFileSelect} />
+                <input type="file" ref={docInputRef} style={{ display: 'none' }} accept=".pdf,.doc,.docx,.txt" onChange={handleFileSelect} />
+                <input type="file" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileSelect} />
+                <div ref={attachMenuRef} style={{ position: 'relative', display: 'flex' }}>
+                    <button id="attach-button" title="Attach File" className="footer-button" disabled={isThinking} onClick={() => setShowAttachMenu(prev => !prev)} style={{ marginRight: '10px', backgroundColor: 'transparent', color: 'var(--accent-color)', border: `1px solid var(--accent-color)`, borderRadius: '50%', width: 44, height: 44, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16"><path d="M4.5 3a2.5 2.5 0 0 1 5 0v9a1.5 1.5 0 0 1-3 0V5a.5.5 0 0 1 1 0v7a.5.5 0 0 0 1 0V3a1.5 1.5 0 1 0-3 0v9a2.5 2.5 0 0 0 5 0V5a.5.5 0 0 1 1 0v7a3.5 3.5 0 1 1-7 0V3z"/></svg>
+                    </button>
+                    {showAttachMenu && (
+                        <div id="attach-menu" style={{ position: 'absolute', bottom: '60px', left: '0', backgroundColor: 'var(--assistant-bubble-bg)', border: '1px solid var(--border-color)', borderRadius: '8px', boxShadow: '0 0 15px rgba(0,0,0,0.5)', width: '150px', zIndex: 10 }}>
+                            <button onClick={handleImageGenerationClick} disabled={isThinking} style={{display: 'block', width: '100%', padding: '10px', background: 'none', border: 'none', color: 'var(--primary-text)', textAlign: 'left', cursor: 'pointer'}}>Create Image</button>
+                            <button onClick={() => imageInputRef.current.click()} disabled={isThinking} style={{display: 'block', width: '100%', padding: '10px', background: 'none', border: 'none', color: 'var(--primary-text)', textAlign: 'left', cursor: 'pointer'}}>Upload Image</button>
+                            <button onClick={() => docInputRef.current.click()} disabled={isThinking} style={{display: 'block', width: '100%', padding: '10px', background: 'none', border: 'none', color: 'var(--primary-text)', textAlign: 'left', cursor: 'pointer'}}>Document</button>
+                            <button onClick={() => fileInputRef.current.click()} disabled={isThinking} style={{display: 'block', width: '100%', padding: '10px', background: 'none', border: 'none', color: 'var(--primary-text)', textAlign: 'left', cursor: 'pointer'}}>File</button>
+                        </div>
+                    )}
+                </div>
+                <textarea placeholder={"Enter command..."} className="input-textarea" rows={1} value={input} onChange={e => setInput(e.target.value)} onKeyDown={handleKeyDown} disabled={isThinking} style={{ flexGrow: 1, borderRadius: 20, border: '1px solid var(--border-color)', padding: '10px 15px', fontSize: 16, resize: 'none', outline: 'none', backgroundColor: '#010409', color: 'var(--primary-text)', fontFamily: "var(--font-family)", cursor: 'text' }} />
+                <button onClick={listening ? stopListening : startListening} aria-label={listening ? 'Stop voice input' : 'Start voice input'} title="Voice Input" className="footer-button" disabled={isThinking} style={{ margin: '0 10px', backgroundColor: 'transparent', color: listening ? '#f85149' : 'var(--accent-color)', border: `1px solid ${listening ? '#f85149' : 'var(--accent-color)'}`, borderRadius: '50%', width: 44, height: 44, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" viewBox="0 0 16 16"><path d="M3.5 6.5A.5.5 0 0 1 4 7v1a4 4 0 0 0 8 0V7a.5.5 0 0 1 1 0v1a5 5 0 0 1-4.5 4.975V15h3a.5.5 0 0 1 0 1h-7a.5.5 0 0 1 0-1h3v-2.025A5 5 0 0 1 3 8V7a.5.5 0 0 1 .5-.5z"/><path d="M8 8a3 3 0 0 0-3 3v.5a.5.5 0 0 0 1 0V11a2 2 0 0 1 4 0v.5a.5.5 0 0 0 1 0V11a3 3 0 0 0-3-3z"/></svg>
+                </button>
+                <button onClick={handleSend} aria-label="Send message" className="send-button" disabled={isThinking} style={{ backgroundColor: 'var(--accent-color)', color: 'var(--bg-color)', border: 'none', borderRadius: 20, padding: '10px 20px', fontWeight: 'bold', fontSize: 16, cursor: 'pointer' }}>SEND</button>
+              </footer>
+            </div>
+          );
+        };
+
+        ReactDOM.render(<Chatbot />, document.getElementById('root'));
+    </script>
+</body>
+</html>
